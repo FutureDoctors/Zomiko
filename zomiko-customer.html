@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zomiko — गाँव का जायका</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Mukta:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --mustard:#D9A62E; --maroon:#7A2E2E; --paper:#F5EEDD;
+    --leaf:#3B5D3B; --terracotta:#C1613D; --ink:#2B2420;
+  }
+  body{ font-family:'Mukta',sans-serif; background-color:var(--paper); color:var(--ink);
+    background-image: radial-gradient(circle at 1px 1px, rgba(43,36,32,0.06) 1px, transparent 0);
+    background-size: 18px 18px; }
+  .signboard{ font-family:'Baloo 2', sans-serif; }
+  .shutter-card{ border:3px solid var(--ink); border-radius:4px 18px 4px 18px;
+    box-shadow:5px 5px 0 var(--ink); background:#fff; transition:transform .15s ease, box-shadow .15s ease; }
+  .shutter-card:active{ transform:translate(2px,2px); box-shadow:3px 3px 0 var(--ink); }
+  .stripe-top{ background:repeating-linear-gradient(45deg, var(--terracotta), var(--terracotta) 10px, var(--mustard) 10px, var(--mustard) 20px); height:8px; }
+  .btn-primary{ background:var(--maroon); color:var(--paper); border-radius:4px 14px 4px 14px; box-shadow:3px 3px 0 var(--ink); }
+  .btn-primary:active{ transform:translate(2px,2px); box-shadow:1px 1px 0 var(--ink); }
+  .btn-primary:disabled{ opacity:0.5; }
+  .badge{ background:var(--leaf); color:var(--paper); }
+  .badge-closed{ background:#8a3a3a; color:#fff; }
+  ::-webkit-scrollbar{ display:none; }
+  .fade-in{ animation: fadeIn .25s ease-out; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+  .stagger{ opacity:0; animation: fadeIn .35s ease-out forwards; }
+  #cartBar.pulse button{ animation: cartPulse .35s ease; }
+  @keyframes cartPulse{ 0%{transform:scale(1);} 40%{transform:scale(1.05);} 100%{transform:scale(1);} }
+  .track-dot{ width:14px; height:14px; border-radius:50%; border:3px solid var(--ink); background:#fff; }
+  .track-dot.done{ background:var(--leaf); }
+  .track-line{ width:3px; background:var(--ink); opacity:.25; }
+  .track-line.done{ background:var(--leaf); opacity:1; }
+  input, textarea, select{ font-family:'Mukta',sans-serif; }
+  .chip{ border:2px solid var(--ink); border-radius:999px; padding:4px 12px; font-weight:600; font-size:13px; white-space:nowrap; }
+  .chip.active{ background:var(--mustard); }
+</style>
+</head>
+<body class="min-h-screen">
+
+<div id="app" class="max-w-md mx-auto min-h-screen relative pb-24">
+  <header class="px-5 pt-6 pb-3">
+    <h1 class="signboard text-4xl font-extrabold" style="color:var(--maroon)">Zomiko</h1>
+    <p class="signboard text-base mt-1 font-bold" style="color:var(--terracotta)">You think, we'll deliver the taste.</p>
+  </header>
+  <main id="view" class="px-5"></main>
+</div>
+
+<div id="cartBar" class="hidden fixed bottom-0 left-0 right-0 z-30">
+  <div class="max-w-md mx-auto px-5 pb-5">
+    <button onclick="goTo('cart')" class="w-full btn-primary signboard text-lg font-bold py-3 flex items-center justify-between px-5">
+      <span id="cartBarCount">0 items</span>
+      <span id="cartBarTotal">₹0 · View cart →</span>
+    </button>
+  </div>
+</div>
+
+<script>
+// ====== SUPABASE CONFIG — paste your project's URL and anon key here ======
+const SUPABASE_URL = "https://ymefblzliyfxdchbhcqg.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltZWZibHpsaXlmeGRjaGJoY3FnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxOTIwMzYsImV4cCI6MjEwNDc2ODAzNn0.HglqglJGU4wddt_LkDjVWlrCOhua14NMX7rFqPnPy2c";
+// ============================================================================
+
+let supabase = null;
+let libraryLoaded = typeof window.supabase !== 'undefined';
+let configured = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
+if(configured && libraryLoaded){
+  try{ supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+  catch(e){ console.error(e); libraryLoaded = false; }
+}
+
+let RESTAURANTS = [];      // list view data
+let currentRestaurant = null; // full detail incl. categories + items, for menu view
+let settings = {};
+let cart = { restaurantId: null, items: {} }; // items: itemId -> {qty, item}
+let searchTerm = '';
+let dataLoaded = false;
+let loadError = null;
+let trackChannel = null;
+
+// ---------------- data loading ----------------
+async function loadHome(){
+  if(!configured){ loadError='not_configured'; render(); return; }
+  if(!libraryLoaded){ loadError='library_failed'; render(); return; }
+  try{
+    const { data: rests, error: rErr } = await supabase
+      .from('restaurants').select('*').eq('is_active', true).order('id');
+    if(rErr) throw rErr;
+    RESTAURANTS = rests;
+
+    const { data: settingsRows } = await supabase.from('settings').select('*');
+    settings = {};
+    (settingsRows||[]).forEach(s => settings[s.key] = s.value);
+
+    dataLoaded = true; loadError = null;
+  } catch(e){ console.error(e); loadError = 'fetch_failed'; }
+  render();
+}
+
+async function loadRestaurant(id){
+  currentRestaurant = null;
+  render(); // show loading inside menu view
+  try{
+    const { data: r, error: rErr } = await supabase.from('restaurants').select('*').eq('id', id).single();
+    if(rErr) throw rErr;
+    const { data: cats } = await supabase.from('categories').select('*').eq('restaurant_id', id).eq('is_active', true).order('sort_order');
+    const { data: items } = await supabase.from('menu_items').select('*').eq('restaurant_id', id).order('id');
+    currentRestaurant = { ...r, categories: cats||[], items: items||[] };
+  } catch(e){ console.error(e); currentRestaurant = { error:true }; }
+  render();
+}
+
+// ---------------- cart ----------------
+function cartCount(){ return Object.values(cart.items).reduce((s,i)=>s+i.qty,0); }
+function cartSubtotal(){ return Object.values(cart.items).reduce((s,i)=>s+i.qty*i.item.price,0); }
+
+function updateCartBar(){
+  const view = (location.hash||'#home').replace('#','').split('/')[0];
+  const bar = document.getElementById('cartBar');
+  const count = cartCount();
+  if(count===0 || ['cart','checkout','confirm','track','admin'].includes(view)){ bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  document.getElementById('cartBarCount').textContent = count + (count===1?' item':' items');
+  document.getElementById('cartBarTotal').textContent = '₹'+cartSubtotal()+' · View cart →';
+}
+
+function addToCart(item){
+  if(cart.restaurantId && cart.restaurantId !== currentRestaurant.id){
+    if(!confirm('Your cart has items from another stall. Start a new cart for '+currentRestaurant.name+'?')) return;
+    cart = { restaurantId: currentRestaurant.id, items: {} };
+  }
+  cart.restaurantId = currentRestaurant.id;
+  const existing = cart.items[item.id];
+  if(existing){
+    const newQty = existing.qty + 1;
+    if(item.max_quantity && newQty > item.max_quantity){ alert('Maximum '+item.max_quantity+' allowed for this item.'); return; }
+    existing.qty = newQty;
+  } else {
+    cart.items[item.id] = { qty: item.min_quantity || 1, item };
+  }
+  updateCartBar(); renderMenu(); pulseCart();
+}
+
+function changeQty(itemId, delta){
+  const entry = cart.items[itemId];
+  if(!entry) return;
+  const min = entry.item.min_quantity || 1;
+  const newQty = entry.qty + delta;
+  if(newQty < min){ delete cart.items[itemId]; }
+  else if(entry.item.max_quantity && newQty > entry.item.max_quantity){ alert('Maximum '+entry.item.max_quantity+' allowed.'); return; }
+  else { entry.qty = newQty; }
+  if(Object.keys(cart.items).length===0) cart.restaurantId = null;
+  updateCartBar();
+  const view = (location.hash||'').replace('#','').split('/')[0];
+  if(view==='cart') renderCart(); else renderMenu();
+}
+
+function pulseCart(){
+  const bar = document.getElementById('cartBar');
+  bar.classList.remove('hidden'); bar.classList.add('pulse');
+  setTimeout(()=>bar.classList.remove('pulse'), 350);
+}
+
+// ---------------- routing ----------------
+function goTo(view, param){
+  location.hash = param ? `${view}/${param}` : view;
+  render();
+}
+window.addEventListener('hashchange', render);
+
+function currentRoute(){
+  const raw = (location.hash||'#home').replace('#','');
+  const [view, param] = raw.split('/');
+  return { view: view||'home', param };
+}
+
+// ---------------- render: home / list ----------------
+function renderLoading(msg){
+  document.getElementById('view').innerHTML = `<div class="text-center pt-16 opacity-70"><div class="text-4xl mb-3">🧺</div><p class="font-semibold">${msg||'Loading…'}</p></div>`;
+}
+function renderNotConfigured(){
+  document.getElementById('view').innerHTML = `<div class="shutter-card p-5 mt-4">
+    <h2 class="signboard text-lg font-bold mb-2">Supabase not connected</h2>
+    <p class="text-sm opacity-80">Set SUPABASE_URL and SUPABASE_ANON_KEY at the top of this file.</p></div>`;
+}
+function renderFetchError(){
+  document.getElementById('view').innerHTML = `<div class="shutter-card p-5 mt-4 text-center">
+    <h2 class="signboard text-lg font-bold mb-2">Couldn't load stalls</h2>
+    <p class="text-sm opacity-80 mb-3">Check your connection or try again.</p>
+    <button onclick="loadHome()" class="btn-primary signboard font-bold px-4 py-2">Retry</button></div>`;
+}
+function renderLibraryFailed(){
+  document.getElementById('view').innerHTML = `<div class="shutter-card p-5 mt-4 text-center">
+    <h2 class="signboard text-lg font-bold mb-2">Connection too slow</h2>
+    <p class="text-sm opacity-80 mb-3">Some files couldn't load. Check your internet and try again.</p>
+    <button onclick="location.reload()" class="btn-primary signboard font-bold px-4 py-2">Retry</button></div>`;
+}
+
+function filteredRestaurants(){
+  if(!searchTerm.trim()) return RESTAURANTS;
+  const q = searchTerm.toLowerCase();
+  return RESTAURANTS.filter(r => r.name.toLowerCase().includes(q) || (r.description||'').toLowerCase().includes(q));
+}
+
+function renderHome(){
+  const list = filteredRestaurants();
+  let html = `<div class="fade-in">
+    <div class="relative mb-4">
+      <input id="searchInput" value="${searchTerm.replace(/"/g,'&quot;')}" oninput="onSearch(this.value)" placeholder="Search stalls or dishes..."
+        class="w-full border-2 border-[var(--ink)] rounded-full px-4 py-2 bg-white pr-9">
+      <span class="absolute right-4 top-2 opacity-60">🔍</span>
+    </div>`;
+
+  if(RESTAURANTS.length===0){
+    html += `<div class="shutter-card p-6 text-center"><p class="font-semibold">No stalls live yet</p><p class="text-sm opacity-70 mt-1">Check back soon.</p></div>`;
+  } else if(list.length===0){
+    html += `<div class="shutter-card p-6 text-center"><p class="font-semibold">No matches for "${searchTerm}"</p></div>`;
+  } else {
+    html += `<h2 class="signboard text-xl font-bold mb-3">Open near you</h2><div class="space-y-4">`;
+    list.forEach((r,i)=>{
+      html += `
+      <div class="shutter-card stagger overflow-hidden cursor-pointer" style="animation-delay:${i*60}ms" onclick="goTo('menu','${r.id}')">
+        <div class="stripe-top"></div>
+        <div class="p-4 flex items-center gap-4">
+          <div class="text-4xl">${r.logo_url ? `<img src="${r.logo_url}" class="w-12 h-12 rounded-full object-cover">` : '🍽️'}</div>
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <h3 class="signboard font-bold text-lg leading-tight">${r.name}</h3>
+              ${r.is_open ? `<span class="badge text-[10px] font-bold px-2 py-0.5 rounded">OPEN</span>` : `<span class="badge-closed text-[10px] font-bold px-2 py-0.5 rounded">CLOSED</span>`}
+            </div>
+            <p class="text-sm opacity-80">${r.description||''}</p>
+            <div class="flex items-center gap-2 mt-1 text-xs font-semibold opacity-70">
+              <span>${r.prep_time_minutes||20}-${(r.prep_time_minutes||20)+10} min</span>
+              ${r.delivery_charge ? `<span>· ₹${r.delivery_charge} delivery</span>` : `<span>· Free delivery</span>`}
+            </div>
+          </div>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  html += `</div>`;
+  document.getElementById('view').innerHTML = html;
+  document.getElementById('searchInput').focus({preventScroll:true});
+}
+function onSearch(v){ searchTerm = v; renderHome(); }
+
+// ---------------- render: menu ----------------
+function renderMenu(){
+  if(!currentRestaurant){ renderLoading('Loading stall…'); return; }
+  if(currentRestaurant.error){
+    document.getElementById('view').innerHTML = `<button onclick="goTo('home')" class="text-sm font-bold mb-3" style="color:var(--maroon)">← Back</button>
+      <div class="shutter-card p-5 text-center"><p class="font-semibold">Couldn't load this stall</p></div>`;
+    return;
+  }
+  const r = currentRestaurant;
+  let html = `<div class="fade-in">
+    <button onclick="goTo('home')" class="text-sm font-bold mb-3 flex items-center gap-1" style="color:var(--maroon)">← Back to stalls</button>
+    <div class="shutter-card p-4 mb-4">
+      <div class="flex items-center gap-3">
+        <div class="text-4xl">${r.logo_url ? `<img src="${r.logo_url}" class="w-12 h-12 rounded-full object-cover">` : '🍽️'}</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="signboard text-xl font-bold">${r.name}</h2>
+            ${r.is_open ? `<span class="badge text-[10px] font-bold px-2 py-0.5 rounded">OPEN</span>` : `<span class="badge-closed text-[10px] font-bold px-2 py-0.5 rounded">CLOSED</span>`}
+          </div>
+          <p class="text-sm opacity-80">${r.description||''}</p>
+          ${r.minimum_order_amount ? `<p class="text-xs opacity-60 mt-0.5">Minimum order ₹${r.minimum_order_amount}</p>` : ''}
+        </div>
+      </div>
+    </div>`;
+
+  if(!r.is_open){
+    html += `<div class="shutter-card p-4 mb-4 text-center"><p class="font-semibold">This stall is closed right now</p><p class="text-sm opacity-70">Please check back during opening hours.</p></div>`;
+  }
+
+  const grouped = {};
+  r.items.forEach(it=>{
+    const key = it.category_id || 'other';
+    if(!grouped[key]) grouped[key] = [];
+    grouped[key].push(it);
+  });
+  const cats = r.categories.length ? r.categories : [{id:'other', name:'Menu'}];
+
+  cats.forEach(cat=>{
+    const items = grouped[cat.id] || [];
+    if(items.length===0) return;
+    html += `<h3 class="signboard font-bold text-lg mt-4 mb-2">${cat.name}</h3><div class="space-y-3">`;
+    items.forEach(item=>{
+      const entry = cart.items[item.id];
+      const qty = entry ? entry.qty : 0;
+      const canOrder = r.is_open && item.is_available;
+      html += `
+      <div class="flex items-center justify-between border-b-2 border-dashed border-[var(--ink)]/30 pb-3">
+        <div>
+          <div class="flex items-center gap-1.5">
+            <span class="inline-block w-3 h-3 border-2 rounded-sm ${item.is_veg?'border-green-700':'border-red-700'}" style="position:relative;">
+              <span class="absolute inset-0 m-auto w-1.5 h-1.5 rounded-full ${item.is_veg?'bg-green-700':'bg-red-700'}" style="margin:1px;"></span>
+            </span>
+            <p class="font-semibold">${item.name}</p>
+            ${item.is_popular ? `<span class="text-[10px] font-bold" style="color:var(--terracotta)">★ Popular</span>` : ''}
+          </div>
+          <p class="text-sm opacity-70">₹${item.price}${item.min_quantity>1 ? ` · min ${item.min_quantity}`:''}</p>
+          ${!item.is_available ? `<p class="text-xs font-semibold" style="color:#8a3a3a">Currently unavailable</p>` : ''}
+        </div>
+        ${!canOrder ? '' : (qty===0
+          ? `<button onclick='addToCart(${JSON.stringify(item)})' class="btn-primary text-sm font-bold px-4 py-1.5">Add</button>`
+          : `<div class="flex items-center gap-3 btn-primary px-2 py-1">
+               <button onclick="changeQty(${item.id},-1)" class="font-bold text-lg w-5">−</button>
+               <span class="font-bold">${qty}</span>
+               <button onclick="changeQty(${item.id},1)" class="font-bold text-lg w-5">+</button>
+             </div>`)}
+      </div>`;
+    });
+    html += `</div>`;
+  });
+
+  if(r.items.length===0) html += `<p class="text-sm opacity-70 mt-4">No menu items yet.</p>`;
+  html += `</div>`;
+  document.getElementById('view').innerHTML = html;
+}
+
+// ---------------- render: cart ----------------
+function renderCart(){
+  const entries = Object.entries(cart.items);
+  const restaurant = RESTAURANTS.find(r=>r.id===cart.restaurantId) || currentRestaurant;
+  let html = `<div class="fade-in">
+    <button onclick="goTo('home')" class="text-sm font-bold mb-3 flex items-center gap-1" style="color:var(--maroon)">← Back to stalls</button>
+    <h2 class="signboard text-xl font-bold mb-3">Your order</h2>`;
+  if(entries.length===0){
+    html += `<div class="shutter-card p-6 text-center"><p class="text-lg font-semibold">Your basket is empty</p><p class="text-sm opacity-70 mt-1">Go pick something tasty.</p></div>`;
+  } else {
+    html += `<div class="space-y-3 mb-4">`;
+    entries.forEach(([idStr, entry])=>{
+      const id = Number(idStr);
+      html += `
+      <div class="shutter-card p-3 flex items-center justify-between">
+        <div><p class="font-semibold">${entry.item.name}</p><p class="text-xs opacity-60">₹${entry.item.price} each</p></div>
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2">
+            <button onclick="changeQty(${id},-1)" class="font-bold text-lg w-5">−</button>
+            <span class="font-bold">${entry.qty}</span>
+            <button onclick="changeQty(${id},1)" class="font-bold text-lg w-5">+</button>
+          </div>
+          <span class="font-bold w-14 text-right">₹${entry.qty*entry.item.price}</span>
+        </div>
+      </div>`;
+    });
+    const subtotal = cartSubtotal();
+    const deliveryCharge = restaurant ? (restaurant.delivery_charge||0) : 0;
+    const minOrder = restaurant ? (restaurant.minimum_order_amount||0) : 0;
+    const total = subtotal + deliveryCharge;
+    html += `</div>
+      <div class="space-y-1 border-t-2 border-[var(--ink)] pt-3 mb-4">
+        <div class="flex justify-between text-sm"><span>Subtotal</span><span>₹${subtotal}</span></div>
+        <div class="flex justify-between text-sm"><span>Delivery charge</span><span>₹${deliveryCharge}</span></div>
+        <div class="flex justify-between signboard text-lg font-bold pt-1"><span>Total</span><span>₹${total}</span></div>
+      </div>`;
+    if(minOrder && subtotal < minOrder){
+      html += `<p class="text-sm font-semibold mb-3" style="color:#8a3a3a">Add ₹${minOrder-subtotal} more to reach the ₹${minOrder} minimum order for this stall.</p>
+        <button disabled class="w-full btn-primary signboard text-lg font-bold py-3">Proceed to checkout</button>`;
+    } else {
+      html += `<button onclick="goTo('checkout')" class="w-full btn-primary signboard text-lg font-bold py-3">Proceed to checkout</button>`;
+    }
+  }
+  html += `</div>`;
+  document.getElementById('view').innerHTML = html;
+}
+
+// ---------------- render: checkout ----------------
+let selectedPay = 'cod';
+function selectPay(mode){
+  selectedPay = mode;
+  document.getElementById('pay-cod').style.background = mode==='cod' ? 'var(--mustard)' : '#fff';
+  document.getElementById('pay-upi').style.background = mode==='upi' ? 'var(--mustard)' : '#fff';
+  document.getElementById('upiBlock').classList.toggle('hidden', mode!=='upi');
+}
+
+function renderCheckout(){
+  const restaurant = RESTAURANTS.find(r=>r.id===cart.restaurantId) || currentRestaurant;
+  const subtotal = cartSubtotal();
+  const deliveryCharge = restaurant ? (restaurant.delivery_charge||0) : 0;
+  const total = subtotal + deliveryCharge;
+  const upiId = settings.upi_id || '';
+  const upiQr = settings.upi_qr_url || null;
+
+  let html = `<div class="fade-in">
+    <button onclick="goTo('cart')" class="text-sm font-bold mb-3 flex items-center gap-1" style="color:var(--maroon)">← Back to order</button>
+    <h2 class="signboard text-xl font-bold mb-3">Delivery details</h2>
+    <div class="shutter-card p-4 space-y-3">
+      <div><label class="text-sm font-semibold block mb-1">Your name</label>
+        <input id="custName" placeholder="e.g. Suresh Yadav" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2 bg-white"></div>
+      <div><label class="text-sm font-semibold block mb-1">Mobile number</label>
+        <input id="custPhone" type="tel" placeholder="10-digit number" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2 bg-white"></div>
+      <div><label class="text-sm font-semibold block mb-1">Address / landmark</label>
+        <textarea id="custAddr" rows="2" placeholder="House no., near..." class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2 bg-white"></textarea></div>
+      <div><label class="text-sm font-semibold block mb-1">Delivery instructions (optional)</label>
+        <input id="custNote" placeholder="e.g. call before arriving" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2 bg-white"></div>
+      <div>
+        <label class="text-sm font-semibold block mb-2">Payment</label>
+        <div class="flex gap-2">
+          <button type="button" onclick="selectPay('cod')" id="pay-cod" class="flex-1 border-2 border-[var(--ink)] rounded-lg py-2 font-semibold">Cash on delivery</button>
+          <button type="button" onclick="selectPay('upi')" id="pay-upi" class="flex-1 border-2 border-[var(--ink)] rounded-lg py-2 font-semibold">UPI</button>
+        </div>
+        <div id="upiBlock" class="hidden mt-3 text-center">
+          ${upiQr ? `<img src="${upiQr}" class="w-40 h-40 mx-auto border-2 border-[var(--ink)] rounded-lg">` : ''}
+          ${upiId ? `<p class="text-sm font-semibold mt-2">Pay to: ${upiId}</p>` : `<p class="text-xs opacity-60 mt-2">UPI details not set up yet — choose Cash on delivery instead.</p>`}
+        </div>
+      </div>
+    </div>
+    <div class="space-y-1 my-4">
+      <div class="flex justify-between text-sm"><span>Subtotal</span><span>₹${subtotal}</span></div>
+      <div class="flex justify-between text-sm"><span>Delivery charge</span><span>₹${deliveryCharge}</span></div>
+      <div class="flex justify-between signboard font-bold text-lg pt-1"><span>Total to pay</span><span>₹${total}</span></div>
+    </div>
+    <button onclick="placeOrder()" id="placeOrderBtn" class="w-full btn-primary signboard text-lg font-bold py-3">Place order</button>
+    <p id="checkoutError" class="text-sm font-semibold text-center mt-2" style="color:#8a3a3a"></p>
+  </div>`;
+  document.getElementById('view').innerHTML = html;
+  selectPay(selectedPay);
+}
+
+async function placeOrder(){
+  const errEl = document.getElementById('checkoutError');
+  errEl.textContent = '';
+  const name = document.getElementById('custName').value.trim();
+  const phone = document.getElementById('custPhone').value.trim();
+  const addr = document.getElementById('custAddr').value.trim();
+  const note = document.getElementById('custNote').value.trim();
+  if(!name || !phone || !addr){ errEl.textContent = 'Please fill your name, number and address.'; return; }
+  if(!/^[0-9]{10}$/.test(phone)){ errEl.textContent = 'Enter a valid 10-digit mobile number.'; return; }
+
+  const restaurant = RESTAURANTS.find(r=>r.id===cart.restaurantId) || currentRestaurant;
+  if(!restaurant || !restaurant.is_open){ errEl.textContent = 'This stall just went offline. Please choose another.'; return; }
+
+  const subtotal = cartSubtotal();
+  const deliveryCharge = restaurant.delivery_charge || 0;
+  const total = subtotal + deliveryCharge;
+  if(restaurant.minimum_order_amount && subtotal < restaurant.minimum_order_amount){
+    errEl.textContent = `Minimum order for this stall is ₹${restaurant.minimum_order_amount}.`; return;
+  }
+
+  const btn = document.getElementById('placeOrderBtn');
+  btn.disabled = true; btn.textContent = 'Placing order…';
+
+  try{
+    const { data: order, error: oErr } = await supabase.from('orders').insert({
+      customer_name: name, phone, address: addr, delivery_instructions: note || null,
+      restaurant_id: restaurant.id, subtotal, delivery_charge: deliveryCharge, discount: 0, total,
+      payment_method: selectedPay, payment_status: selectedPay==='upi' ? 'pending' : 'pending', status: 'placed'
+    }).select().single();
+    if(oErr) throw oErr;
+
+    const itemRows = Object.values(cart.items).map(entry => ({
+      order_id: order.id, item_name: entry.item.name, item_price: entry.item.price,
+      quantity: entry.qty, line_total: entry.qty*entry.item.price
+    }));
+    const { error: iErr } = await supabase.from('order_items').insert(itemRows);
+    if(iErr) throw iErr;
+
+    cart = { restaurantId: null, items: {} };
+    updateCartBar();
+    goTo('confirm', order.order_code);
+  } catch(e){
+    console.error(e);
+    errEl.textContent = 'Could not place your order — please check your connection and try again.';
+    btn.disabled = false; btn.textContent = 'Place order';
+  }
+}
+
+// ---------------- render: confirm + tracking ----------------
+function renderConfirm(orderCode){
+  document.getElementById('view').innerHTML = `<div class="fade-in text-center pt-6">
+    <div class="text-6xl mb-3">🧺</div>
+    <h2 class="signboard text-2xl font-bold" style="color:var(--maroon)">Order placed!</h2>
+    <p class="mt-2 opacity-80">Order ${orderCode} — your food is being prepared with care.</p>
+    <button onclick="goTo('track','${orderCode}')" class="w-full btn-primary signboard text-lg font-bold py-3 mt-6">Track order</button>
+    <button onclick="goTo('home')" class="w-full text-sm font-bold mt-3" style="color:var(--maroon)">Order more instead</button>
+  </div>`;
+}
+
+const STATUS_STEPS = [
+  {key:'placed', label:'Order placed', emoji:'🧺'},
+  {key:'accepted', label:'Accepted', emoji:'👍'},
+  {key:'preparing', label:'Preparing', emoji:'🍳'},
+  {key:'out_for_delivery', label:'Out for delivery', emoji:'🛵'},
+  {key:'delivered', label:'Delivered', emoji:'✅'},
+];
+
+async function renderTrack(orderCode){
+  if(trackChannel){ supabase.removeChannel(trackChannel); trackChannel = null; }
+  document.getElementById('view').innerHTML = `<div class="text-center pt-10 opacity-70"><p class="font-semibold">Loading order ${orderCode}…</p></div>`;
+  const order = await fetchOrder(orderCode);
+  if(!order){
+    document.getElementById('view').innerHTML = `<div class="shutter-card p-5 text-center"><p class="font-semibold">Order not found</p><p class="text-sm opacity-70">Check the order code and try again.</p></div>`;
+    return;
+  }
+  drawTrack(order);
+
+  if(configured){
+    trackChannel = supabase.channel('order-'+order.id)
+      .on('postgres_changes', { event:'UPDATE', schema:'public', table:'orders', filter:`id=eq.${order.id}` },
+        payload => drawTrack(payload.new))
+      .subscribe();
+  }
+}
+
+async function fetchOrder(orderCode){
+  try{
+    const { data, error } = await supabase.from('orders').select('*').eq('order_code', orderCode).single();
+    if(error) throw error;
+    return data;
+  } catch(e){ console.error(e); return null; }
+}
+
+function drawTrack(order){
+  if(order.status === 'cancelled'){
+    document.getElementById('view').innerHTML = `<div class="shutter-card p-5 text-center">
+      <h2 class="signboard text-xl font-bold mb-1">Order ${order.order_code}</h2>
+      <p class="font-semibold mt-2" style="color:#8a3a3a">This order was cancelled</p>
+    </div>`;
+    return;
+  }
+  const stageIdx = STATUS_STEPS.findIndex(s=>s.key===order.status);
+  let html = `<div class="fade-in">
+    <h2 class="signboard text-xl font-bold mb-1">Order ${order.order_code}</h2>
+    <p class="text-sm opacity-70 mb-5">₹${order.total} · ${order.payment_method==='cod'?'Cash on delivery':'UPI'}</p>
+    <div class="shutter-card p-5">`;
+  STATUS_STEPS.forEach((step,i)=>{
+    const done = i <= stageIdx;
+    html += `<div class="flex items-start gap-3 ${i<STATUS_STEPS.length-1?'pb-6':''}">
+      <div class="flex flex-col items-center">
+        <div class="track-dot ${done?'done':''}"></div>
+        ${i<STATUS_STEPS.length-1 ? `<div class="track-line ${i<stageIdx?'done':''}" style="height:32px;margin-top:2px;"></div>` : ''}
+      </div>
+      <div class="-mt-1">
+        <p class="font-bold ${done?'':'opacity-40'}">${step.emoji} ${step.label}</p>
+        ${i===stageIdx ? `<p class="text-xs opacity-60">In progress…</p>` : ''}
+      </div>
+    </div>`;
+  });
+  html += `</div>
+    <p class="text-xs opacity-50 text-center mt-3">This page updates automatically. You can also refresh anytime — your order is saved.</p>
+    <button onclick="goTo('home')" class="w-full btn-primary signboard text-lg font-bold py-3 mt-6">Back to stalls</button>
+  </div>`;
+  document.getElementById('view').innerHTML = html;
+}
+
+// ---------------- router ----------------
+function render(){
+  const { view, param } = currentRoute();
+  updateCartBar();
+  if(!dataLoaded && view!=='track'){
+    if(loadError==='not_configured') renderNotConfigured();
+    else if(loadError==='library_failed') renderLibraryFailed();
+    else if(loadError==='fetch_failed') renderFetchError();
+    else renderLoading('Loading nearby stalls…');
+    return;
+  }
+  if(view==='menu' && param){
+    if(!currentRestaurant || String(currentRestaurant.id)!==String(param)) loadRestaurant(Number(param));
+    else renderMenu();
+  }
+  else if(view==='cart') renderCart();
+  else if(view==='checkout') renderCheckout();
+  else if(view==='confirm') renderConfirm(param);
+  else if(view==='track') renderTrack(param);
+  else renderHome();
+}
+
+loadHome();
+</script>
+</body>
+</html>
