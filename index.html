@@ -1,11 +1,29 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Zomiko — गाँव का जायका</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+function __loadScript(src){
+  return new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src=src; s.onload=()=>resolve(true); s.onerror=()=>reject(new Error('load failed: '+src));
+    document.head.appendChild(s);
+  });
+}
+window.__supabaseReady = (async ()=>{
+  const sources = [
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
+    'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js'
+  ];
+  for(const src of sources){
+    try{ await __loadScript(src); if(window.supabase) return true; }catch(e){ /* try next */ }
+  }
+  return false;
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Mukta:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -17,6 +35,13 @@
     background-image: radial-gradient(circle at 1px 1px, rgba(43,36,32,0.06) 1px, transparent 0);
     background-size: 18px 18px; }
   .signboard{ font-family:'Baloo 2', sans-serif; }
+  input, textarea, select{ font-family:'Mukta',sans-serif; }
+  ::-webkit-scrollbar{ display:none; }
+  .fade-in{ animation: fadeIn .25s ease-out; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
+  .stagger{ opacity:0; animation: fadeIn .35s ease-out forwards; }
+
+  /* ---- customer styles ---- */
   .shutter-card{ border:3px solid var(--ink); border-radius:4px 18px 4px 18px;
     box-shadow:5px 5px 0 var(--ink); background:#fff; transition:transform .15s ease, box-shadow .15s ease; }
   .shutter-card:active{ transform:translate(2px,2px); box-shadow:3px 3px 0 var(--ink); }
@@ -26,26 +51,37 @@
   .btn-primary:disabled{ opacity:0.5; }
   .badge{ background:var(--leaf); color:var(--paper); }
   .badge-closed{ background:#8a3a3a; color:#fff; }
-  ::-webkit-scrollbar{ display:none; }
-  .fade-in{ animation: fadeIn .25s ease-out; }
-  @keyframes fadeIn{ from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);} }
-  .stagger{ opacity:0; animation: fadeIn .35s ease-out forwards; }
   #cartBar.pulse button{ animation: cartPulse .35s ease; }
   @keyframes cartPulse{ 0%{transform:scale(1);} 40%{transform:scale(1.05);} 100%{transform:scale(1);} }
+  .qty-pop{ animation: qtyPop .25s ease; }
+  @keyframes qtyPop{ 0%{transform:scale(1);} 40%{transform:scale(1.2);} 100%{transform:scale(1);} }
   .track-dot{ width:14px; height:14px; border-radius:50%; border:3px solid var(--ink); background:#fff; }
   .track-dot.done{ background:var(--leaf); }
   .track-line{ width:3px; background:var(--ink); opacity:.25; }
   .track-line.done{ background:var(--leaf); opacity:1; }
-  input, textarea, select{ font-family:'Mukta',sans-serif; }
-  .chip{ border:2px solid var(--ink); border-radius:999px; padding:4px 12px; font-weight:600; font-size:13px; white-space:nowrap; }
-  .chip.active{ background:var(--mustard); }
+
+  /* ---- admin styles ---- */
+  .card{ border:3px solid var(--ink); border-radius:4px 16px 4px 16px; background:#fff; box-shadow:4px 4px 0 var(--ink); }
+  .btn{ background:var(--maroon); color:var(--paper); border-radius:4px 12px 4px 12px; box-shadow:3px 3px 0 var(--ink); font-weight:700; }
+  .btn:active{ transform:translate(2px,2px); box-shadow:1px 1px 0 var(--ink); }
+  .btn-ghost{ border:2px solid var(--ink); border-radius:4px 12px 4px 12px; font-weight:700; }
+  .btn-danger{ background:#8a3a3a; color:#fff; border-radius:4px 12px 4px 12px; font-weight:700; }
+  .tab{ border-bottom:3px solid transparent; font-weight:700; padding:8px 4px; white-space:nowrap; }
+  .tab.active{ border-color:var(--maroon); color:var(--maroon); }
+  .toast{ animation: slideDown .3s ease-out; }
+  @keyframes slideDown{ from{transform:translateY(-100%); opacity:0;} to{transform:translateY(0); opacity:1;} }
+  .status-pill{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
+  .hidden{ display:none; }
 </style>
 </head>
 <body class="min-h-screen">
 
-<div id="app" class="max-w-md mx-auto min-h-screen relative pb-24">
+<!-- ================= CUSTOMER SITE ================= -->
+<div id="customerRoot" class="max-w-md mx-auto min-h-screen relative pb-24">
   <header class="px-5 pt-6 pb-3">
-    <h1 class="signboard text-4xl font-extrabold" style="color:var(--maroon)">Zomiko</h1>
+    <div class="flex items-baseline justify-between">
+      <h1 class="signboard text-4xl font-extrabold" style="color:var(--maroon)">Zomiko</h1>
+    </div>
     <p class="signboard text-base mt-1 font-bold" style="color:var(--terracotta)">You think, we'll deliver the taste.</p>
   </header>
   <main id="view" class="px-5"></main>
@@ -60,51 +96,67 @@
   </div>
 </div>
 
+<!-- ================= ADMIN SITE ================= -->
+<div id="adminRoot" class="hidden">
+  <div id="adminApp" class="max-w-lg mx-auto min-h-screen pb-10"></div>
+  <div id="toastHost" class="fixed top-0 left-0 right-0 z-50 flex flex-col items-center gap-2 pt-3 pointer-events-none"></div>
+</div>
+
 <script>
-// ====== SUPABASE CONFIG — paste your project's URL and anon key here ======
+// ====== SUPABASE CONFIG ======
 const SUPABASE_URL = "https://ymefblzliyfxdchbhcqg.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltZWZibHpsaXlmeGRjaGJoY3FnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkxOTIwMzYsImV4cCI6MjEwNDc2ODAzNn0.HglqglJGU4wddt_LkDjVWlrCOhua14NMX7rFqPnPy2c";
-// ============================================================================
+// ==============================
 
 let supabase = null;
-let libraryLoaded = typeof window.supabase !== 'undefined';
+let libraryLoaded = false;
 let configured = SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20;
-if(configured && libraryLoaded){
-  try{ supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
-  catch(e){ console.error(e); libraryLoaded = false; }
-}
 
-let RESTAURANTS = [];      // list view data
-let currentRestaurant = null; // full detail incl. categories + items, for menu view
+/* ================================================================
+   MASTER ROUTER — decides customer vs admin based on the URL hash
+   ================================================================ */
+function routeApp(){
+  const hash = location.hash || '#home';
+  const isAdminRoute = hash.startsWith('#admin');
+  document.getElementById('customerRoot').classList.toggle('hidden', isAdminRoute);
+  if(isAdminRoute) document.getElementById('cartBar').classList.add('hidden');
+  document.getElementById('adminRoot').classList.toggle('hidden', !isAdminRoute);
+  if(isAdminRoute){ adminRender(); }
+  else { customerRender(); }
+}
+window.addEventListener('hashchange', routeApp);
+
+/* ================================================================
+   CUSTOMER SITE
+   ================================================================ */
+let RESTAURANTS = [];
+let currentRestaurant = null;
 let settings = {};
-let cart = { restaurantId: null, items: {} }; // items: itemId -> {qty, item}
+let cart = { restaurantId: null, items: {} };
 let searchTerm = '';
 let dataLoaded = false;
 let loadError = null;
 let trackChannel = null;
 
-// ---------------- data loading ----------------
 async function loadHome(){
-  if(!configured){ loadError='not_configured'; render(); return; }
-  if(!libraryLoaded){ loadError='library_failed'; render(); return; }
+  if(!configured){ loadError='not_configured'; customerRender(); return; }
+  if(!libraryLoaded){ loadError='library_failed'; customerRender(); return; }
   try{
     const { data: rests, error: rErr } = await supabase
       .from('restaurants').select('*').eq('is_active', true).order('id');
     if(rErr) throw rErr;
     RESTAURANTS = rests;
-
     const { data: settingsRows } = await supabase.from('settings').select('*');
     settings = {};
     (settingsRows||[]).forEach(s => settings[s.key] = s.value);
-
     dataLoaded = true; loadError = null;
   } catch(e){ console.error(e); loadError = 'fetch_failed'; }
-  render();
+  customerRender();
 }
 
 async function loadRestaurant(id){
   currentRestaurant = null;
-  render(); // show loading inside menu view
+  customerRender();
   try{
     const { data: r, error: rErr } = await supabase.from('restaurants').select('*').eq('id', id).single();
     if(rErr) throw rErr;
@@ -112,10 +164,9 @@ async function loadRestaurant(id){
     const { data: items } = await supabase.from('menu_items').select('*').eq('restaurant_id', id).order('id');
     currentRestaurant = { ...r, categories: cats||[], items: items||[] };
   } catch(e){ console.error(e); currentRestaurant = { error:true }; }
-  render();
+  customerRender();
 }
 
-// ---------------- cart ----------------
 function cartCount(){ return Object.values(cart.items).reduce((s,i)=>s+i.qty,0); }
 function cartSubtotal(){ return Object.values(cart.items).reduce((s,i)=>s+i.qty*i.item.price,0); }
 
@@ -166,12 +217,10 @@ function pulseCart(){
   setTimeout(()=>bar.classList.remove('pulse'), 350);
 }
 
-// ---------------- routing ----------------
 function goTo(view, param){
   location.hash = param ? `${view}/${param}` : view;
-  render();
+  customerRender();
 }
-window.addEventListener('hashchange', render);
 
 function currentRoute(){
   const raw = (location.hash||'#home').replace('#','');
@@ -179,7 +228,6 @@ function currentRoute(){
   return { view: view||'home', param };
 }
 
-// ---------------- render: home / list ----------------
 function renderLoading(msg){
   document.getElementById('view').innerHTML = `<div class="text-center pt-16 opacity-70"><div class="text-4xl mb-3">🧺</div><p class="font-semibold">${msg||'Loading…'}</p></div>`;
 }
@@ -215,7 +263,6 @@ function renderHome(){
         class="w-full border-2 border-[var(--ink)] rounded-full px-4 py-2 bg-white pr-9">
       <span class="absolute right-4 top-2 opacity-60">🔍</span>
     </div>`;
-
   if(RESTAURANTS.length===0){
     html += `<div class="shutter-card p-6 text-center"><p class="font-semibold">No stalls live yet</p><p class="text-sm opacity-70 mt-1">Check back soon.</p></div>`;
   } else if(list.length===0){
@@ -246,11 +293,10 @@ function renderHome(){
   }
   html += `</div>`;
   document.getElementById('view').innerHTML = html;
-  document.getElementById('searchInput').focus({preventScroll:true});
+  const si = document.getElementById('searchInput'); if(si) si.focus({preventScroll:true});
 }
 function onSearch(v){ searchTerm = v; renderHome(); }
 
-// ---------------- render: menu ----------------
 function renderMenu(){
   if(!currentRestaurant){ renderLoading('Loading stall…'); return; }
   if(currentRestaurant.error){
@@ -274,19 +320,12 @@ function renderMenu(){
         </div>
       </div>
     </div>`;
-
   if(!r.is_open){
     html += `<div class="shutter-card p-4 mb-4 text-center"><p class="font-semibold">This stall is closed right now</p><p class="text-sm opacity-70">Please check back during opening hours.</p></div>`;
   }
-
   const grouped = {};
-  r.items.forEach(it=>{
-    const key = it.category_id || 'other';
-    if(!grouped[key]) grouped[key] = [];
-    grouped[key].push(it);
-  });
+  r.items.forEach(it=>{ const key = it.category_id || 'other'; if(!grouped[key]) grouped[key]=[]; grouped[key].push(it); });
   const cats = r.categories.length ? r.categories : [{id:'other', name:'Menu'}];
-
   cats.forEach(cat=>{
     const items = grouped[cat.id] || [];
     if(items.length===0) return;
@@ -319,13 +358,11 @@ function renderMenu(){
     });
     html += `</div>`;
   });
-
   if(r.items.length===0) html += `<p class="text-sm opacity-70 mt-4">No menu items yet.</p>`;
   html += `</div>`;
   document.getElementById('view').innerHTML = html;
 }
 
-// ---------------- render: cart ----------------
 function renderCart(){
   const entries = Object.entries(cart.items);
   const restaurant = RESTAURANTS.find(r=>r.id===cart.restaurantId) || currentRestaurant;
@@ -351,7 +388,7 @@ function renderCart(){
         </div>
       </div>`;
     });
-    const subtotal = cartSubtotal();
+ const subtotal = cartSubtotal();
     const deliveryCharge = restaurant ? (restaurant.delivery_charge||0) : 0;
     const minOrder = restaurant ? (restaurant.minimum_order_amount||0) : 0;
     const total = subtotal + deliveryCharge;
@@ -372,7 +409,6 @@ function renderCart(){
   document.getElementById('view').innerHTML = html;
 }
 
-// ---------------- render: checkout ----------------
 let selectedPay = 'cod';
 function selectPay(mode){
   selectedPay = mode;
@@ -388,7 +424,6 @@ function renderCheckout(){
   const total = subtotal + deliveryCharge;
   const upiId = settings.upi_id || '';
   const upiQr = settings.upi_qr_url || null;
-
   let html = `<div class="fade-in">
     <button onclick="goTo('cart')" class="text-sm font-bold mb-3 flex items-center gap-1" style="color:var(--maroon)">← Back to order</button>
     <h2 class="signboard text-xl font-bold mb-3">Delivery details</h2>
@@ -434,35 +469,29 @@ async function placeOrder(){
   const note = document.getElementById('custNote').value.trim();
   if(!name || !phone || !addr){ errEl.textContent = 'Please fill your name, number and address.'; return; }
   if(!/^[0-9]{10}$/.test(phone)){ errEl.textContent = 'Enter a valid 10-digit mobile number.'; return; }
-
   const restaurant = RESTAURANTS.find(r=>r.id===cart.restaurantId) || currentRestaurant;
   if(!restaurant || !restaurant.is_open){ errEl.textContent = 'This stall just went offline. Please choose another.'; return; }
-
   const subtotal = cartSubtotal();
   const deliveryCharge = restaurant.delivery_charge || 0;
   const total = subtotal + deliveryCharge;
   if(restaurant.minimum_order_amount && subtotal < restaurant.minimum_order_amount){
     errEl.textContent = `Minimum order for this stall is ₹${restaurant.minimum_order_amount}.`; return;
   }
-
   const btn = document.getElementById('placeOrderBtn');
   btn.disabled = true; btn.textContent = 'Placing order…';
-
   try{
     const { data: order, error: oErr } = await supabase.from('orders').insert({
       customer_name: name, phone, address: addr, delivery_instructions: note || null,
       restaurant_id: restaurant.id, subtotal, delivery_charge: deliveryCharge, discount: 0, total,
-      payment_method: selectedPay, payment_status: selectedPay==='upi' ? 'pending' : 'pending', status: 'placed'
+      payment_method: selectedPay, payment_status: 'pending', status: 'placed'
     }).select().single();
     if(oErr) throw oErr;
-
     const itemRows = Object.values(cart.items).map(entry => ({
       order_id: order.id, item_name: entry.item.name, item_price: entry.item.price,
       quantity: entry.qty, line_total: entry.qty*entry.item.price
     }));
     const { error: iErr } = await supabase.from('order_items').insert(itemRows);
     if(iErr) throw iErr;
-
     cart = { restaurantId: null, items: {} };
     updateCartBar();
     goTo('confirm', order.order_code);
@@ -473,7 +502,6 @@ async function placeOrder(){
   }
 }
 
-// ---------------- render: confirm + tracking ----------------
 function renderConfirm(orderCode){
   document.getElementById('view').innerHTML = `<div class="fade-in text-center pt-6">
     <div class="text-6xl mb-3">🧺</div>
@@ -501,8 +529,7 @@ async function renderTrack(orderCode){
     return;
   }
   drawTrack(order);
-
-  if(configured){
+  if(configured && libraryLoaded){
     trackChannel = supabase.channel('order-'+order.id)
       .on('postgres_changes', { event:'UPDATE', schema:'public', table:'orders', filter:`id=eq.${order.id}` },
         payload => drawTrack(payload.new))
@@ -551,8 +578,7 @@ function drawTrack(order){
   document.getElementById('view').innerHTML = html;
 }
 
-// ---------------- router ----------------
-function render(){
+function customerRender(){
   const { view, param } = currentRoute();
   updateCartBar();
   if(!dataLoaded && view!=='track'){
@@ -573,7 +599,448 @@ function render(){
   else renderHome();
 }
 
-loadHome();
+/* ================================================================
+   ADMIN SITE — everything under the #admin hash
+   ================================================================ */
+let session = null;
+let isAdmin = false;
+let currentTab = 'dashboard';
+let restaurants = [];
+let categories = [];
+let menuItems = [];
+let selectedRestaurantId = null;
+let ordersCache = [];
+let orderChannel = null;
+let audioCtx = null;
+
+function beep(){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.frequency.value = 880; g.gain.value = 0.15;
+    o.start(); setTimeout(()=>{ o.frequency.value = 1160; }, 120); setTimeout(()=>{ o.stop(); }, 320);
+  }catch(e){}
+}
+
+function adminToast(msg, kind){
+  const el = document.createElement('div');
+  el.className = 'toast card px-4 py-2 font-bold text-sm ' + (kind==='error' ? 'text-red-800' : '');
+  el.style.background = kind==='error' ? '#fdecec' : '#fff';
+  el.textContent = msg;
+  document.getElementById('toastHost').appendChild(el);
+  setTimeout(()=>el.remove(), 4000);
+}
+
+async function adminInit(){
+  if(!libraryLoaded){
+    document.getElementById('adminApp').innerHTML = `<div class="min-h-screen flex items-center justify-center px-6 text-center">
+      <div class="card p-6"><h2 class="signboard text-xl font-bold mb-2">Connection too slow</h2>
+      <p class="text-sm opacity-70 mb-3">Some files couldn't load. Check your internet and try again.</p>
+      <button onclick="location.reload()" class="btn px-4 py-2">Retry</button></div></div>`;
+    return;
+  }
+  const { data } = await supabase.auth.getSession();
+  session = data.session;
+  if(session){
+    isAdmin = await checkAdmin();
+    if(!isAdmin){ await supabase.auth.signOut(); session = null; }
+  }
+  if(isAdmin) await loadAll();
+  adminRender();
+  if(isAdmin) startOrderWatch();
+}
+
+async function checkAdmin(){
+  try{
+    const { data, error } = await supabase.from('admins').select('user_id').eq('user_id', session.user.id);
+    return !error && data && data.length > 0;
+  }catch(e){ return false; }
+}
+
+async function login(){
+  if(!supabase){ document.getElementById('loginError').textContent = 'Connection issue — please refresh and try again.'; return; }
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+  if(error){ errEl.textContent = 'Login failed: ' + error.message; return; }
+  session = data.session;
+  isAdmin = await checkAdmin();
+  if(!isAdmin){ errEl.textContent = 'This account is not an admin.'; await supabase.auth.signOut(); session=null; return; }
+  await loadAll();
+  adminRender();
+  startOrderWatch();
+}
+
+async function logout(){
+  await supabase.auth.signOut();
+  session = null; isAdmin = false;
+  if(orderChannel){ supabase.removeChannel(orderChannel); orderChannel=null; }
+  adminRender();
+}
+
+async function loadAll(){
+  const [{data:r}, {data:c}, {data:m}] = await Promise.all([
+    supabase.from('restaurants').select('*').order('id'),
+    supabase.from('categories').select('*').order('sort_order'),
+    supabase.from('menu_items').select('*').order('id'),
+  ]);
+  restaurants = r||[]; categories = c||[]; menuItems = m||[];
+  if(!selectedRestaurantId && restaurants.length) selectedRestaurantId = restaurants[0].id;
+  await loadOrders();
+}
+
+async function loadOrders(){
+  const { data } = await supabase.from('orders').select('*, order_items(*)').order('created_at', { ascending:false }).limit(100);
+  ordersCache = data||[];
+}
+
+function startOrderWatch(){
+  if(orderChannel) return;
+  orderChannel = supabase.channel('admin-orders')
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'orders' }, payload => {
+      beep();
+      adminToast('🆕 New order ' + payload.new.order_code + ' · ₹' + payload.new.total, 'new');
+      if('Notification' in window && Notification.permission === 'granted'){
+        new Notification('Zomiko — New order', { body: payload.new.order_code + ' · ₹' + payload.new.total });
+      }
+      loadOrders().then(()=>{ if(currentTab==='orders' || currentTab==='dashboard') adminRender(); });
+    })
+    .subscribe();
+  if('Notification' in window && Notification.permission === 'default'){ Notification.requestPermission(); }
+}
+
+function adminGoTo(t){ currentTab = t; adminRender(); }
+
+function adminRender(){
+  const appEl = document.getElementById('adminApp');
+  if(!session || !isAdmin){ appEl.innerHTML = loginHtml(); return; }
+  appEl.innerHTML = `
+    <header class="px-5 pt-6 pb-3 flex items-center justify-between">
+      <div>
+        <h1 class="signboard text-2xl font-extrabold" style="color:var(--maroon)">Zomiko Admin</h1>
+        <p class="text-xs opacity-60">${session.user.email}</p>
+      </div>
+      <button onclick="logout()" class="btn-ghost text-xs px-3 py-1.5">Logout</button>
+    </header>
+    <nav class="flex gap-4 px-5 border-b-2 border-[var(--ink)]/20 overflow-x-auto">
+      ${tabBtn('dashboard','Dashboard')}${tabBtn('orders','Orders')}${tabBtn('restaurants','Restaurants')}${tabBtn('categories','Categories')}${tabBtn('menu','Menu')}${tabBtn('settings','Settings')}
+    </nav>
+    <main class="px-5 py-4 fade-in" id="tabContent"></main>
+  `;
+  const c = document.getElementById('tabContent');
+  if(currentTab==='dashboard') c.innerHTML = dashboardHtml();
+  else if(currentTab==='orders') c.innerHTML = ordersHtml();
+  else if(currentTab==='restaurants') c.innerHTML = restaurantsHtml();
+  else if(currentTab==='categories') c.innerHTML = categoriesHtml();
+  else if(currentTab==='menu') c.innerHTML = menuHtml();
+  else if(currentTab==='settings') settingsHtml().then(h=>c.innerHTML=h);
+}
+function tabBtn(key,label){ return `<button onclick="adminGoTo('${key}')" class="tab ${currentTab===key?'active':''}">${label}</button>`; }
+
+function loginHtml(){
+  return `
+  <div class="min-h-screen flex items-center justify-center px-6">
+    <div class="card p-6 w-full max-w-sm">
+      <h1 class="signboard text-3xl font-extrabold text-center mb-1" style="color:var(--maroon)">Zomiko</h1>
+      <p class="text-center text-sm opacity-70 mb-4">Admin login</p>
+      <input id="loginEmail" type="email" placeholder="Email" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2 mb-2">
+      <input id="loginPass" type="password" placeholder="Password" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2 mb-3">
+      <button onclick="login()" class="btn w-full py-2.5">Login</button>
+      <p id="loginError" class="text-sm font-semibold text-center mt-3" style="color:#8a3a3a"></p>
+    </div>
+  </div>`;
+}
+
+function dashboardHtml(){
+  const todayStr = new Date().toDateString();
+  const todays = ordersCache.filter(o => new Date(o.created_at).toDateString()===todayStr);
+  const sales = todays.reduce((s,o)=>s+Number(o.total||0),0);
+  const pending = ordersCache.filter(o=>!['delivered','cancelled'].includes(o.status)).length;
+  const completed = ordersCache.filter(o=>o.status==='delivered').length;
+  const cancelled = ordersCache.filter(o=>o.status==='cancelled').length;
+  const activeRestaurants = restaurants.filter(r=>r.is_active).length;
+  const popular = menuItems.filter(m=>m.is_popular);
+  return `
+  <div class="grid grid-cols-2 gap-3 mb-4">
+    ${statCard("Today's orders", todays.length)}
+    ${statCard("Today's sales", '₹'+sales)}
+    ${statCard('Pending', pending)}
+    ${statCard('Completed', completed)}
+    ${statCard('Cancelled', cancelled)}
+    ${statCard('Active stalls', activeRestaurants)}
+  </div>
+  <div class="card p-4">
+    <h3 class="signboard font-bold mb-2">Popular items</h3>
+    ${popular.length ? popular.map(p=>`<p class="text-sm py-1 border-b border-dashed border-[var(--ink)]/20">${p.name} — ₹${p.price}</p>`).join('') : '<p class="text-sm opacity-60">None marked popular yet.</p>'}
+  </div>`;
+}
+function statCard(label,val){ return `<div class="card p-3"><p class="text-xs opacity-60 font-semibold">${label}</p><p class="signboard text-2xl font-extrabold">${val}</p></div>`; }
+
+const STATUS_FLOW = ['placed','accepted','preparing','ready','out_for_delivery','delivered'];
+const STATUS_LABEL = { placed:'Placed', accepted:'Accepted', preparing:'Preparing', ready:'Ready', out_for_delivery:'Out for delivery', delivered:'Delivered', cancelled:'Cancelled' };
+
+function ordersHtml(){
+  if(ordersCache.length===0) return `<p class="text-sm opacity-60">No orders yet.</p>`;
+  return `<div class="space-y-3">` + ordersCache.map(o=>{
+    const restaurant = restaurants.find(r=>r.id===o.restaurant_id);
+    const nextIdx = STATUS_FLOW.indexOf(o.status);
+    const nextStatus = nextIdx>=0 && nextIdx<STATUS_FLOW.length-1 ? STATUS_FLOW[nextIdx+1] : null;
+    const isFinal = o.status==='delivered' || o.status==='cancelled';
+    return `
+    <div class="card p-3">
+      <div class="flex justify-between items-start">
+        <div>
+          <p class="font-bold">${o.order_code} <span class="status-pill" style="background:var(--mustard)">${STATUS_LABEL[o.status]}</span></p>
+          <p class="text-xs opacity-70">${restaurant ? restaurant.name : ''} · ${new Date(o.created_at).toLocaleString()}</p>
+        </div>
+        <p class="font-bold">₹${o.total}</p>
+      </div>
+      <p class="text-sm mt-2">${o.customer_name} · ${o.phone}</p>
+      <p class="text-sm opacity-70">${o.address}</p>
+      <p class="text-xs opacity-60 mt-1">${(o.order_items||[]).map(it=>it.quantity+'× '+it.item_name).join(', ')}</p>
+      <p class="text-xs opacity-60">Payment: ${o.payment_method==='cod'?'Cash on delivery':'UPI'} (${o.payment_status})</p>
+      <div class="flex gap-2 mt-3 flex-wrap">
+        ${!isFinal && nextStatus ? `<button onclick="setOrderStatus(${o.id},'${nextStatus}')" class="btn text-xs px-3 py-1.5">Mark ${STATUS_LABEL[nextStatus]}</button>` : ''}
+        ${!isFinal ? `<button onclick="setOrderStatus(${o.id},'cancelled')" class="btn-danger text-xs px-3 py-1.5">Cancel</button>` : ''}
+      </div>
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+async function setOrderStatus(orderId, status){
+  const { error } = await supabase.from('orders').update({ status }).eq('id', orderId);
+  if(error){ adminToast('Failed: '+error.message, 'error'); return; }
+  await loadOrders(); adminRender();
+}
+
+function restaurantsHtml(){
+  return `
+  <div class="card p-4 mb-4">
+    <h3 class="signboard font-bold mb-2">Add restaurant</h3>
+    <div class="space-y-2">
+      <input id="r_name" placeholder="Name" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      <input id="r_desc" placeholder="Description / specialty" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      <input id="r_address" placeholder="Address" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      <input id="r_phone" placeholder="Phone" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      <div class="flex gap-2">
+        <input id="r_open" type="time" class="w-1/2 border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+        <input id="r_close" type="time" class="w-1/2 border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      </div>
+      <div class="flex gap-2">
+        <input id="r_delivery" type="number" placeholder="Delivery charge ₹" class="w-1/2 border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+        <input id="r_minorder" type="number" placeholder="Minimum order ₹" class="w-1/2 border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      </div>
+      <input id="r_prep" type="number" placeholder="Prep time (minutes)" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      <input id="r_logo" placeholder="Logo image URL (optional)" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      <button onclick="addRestaurant()" class="btn w-full py-2">Add restaurant</button>
+    </div>
+  </div>
+  <div class="space-y-3">
+    ${restaurants.map(r=>`
+      <div class="card p-3">
+        <div class="flex justify-between items-center">
+          <p class="font-bold">${r.name}</p>
+          <div class="flex gap-2">
+            <button onclick="toggleRestaurant(${r.id},'is_open',${!r.is_open})" class="btn-ghost text-xs px-2 py-1">${r.is_open?'Mark closed':'Mark open'}</button>
+            <button onclick="toggleRestaurant(${r.id},'is_active',${!r.is_active})" class="btn-ghost text-xs px-2 py-1">${r.is_active?'Disable':'Enable'}</button>
+          </div>
+        </div>
+        <p class="text-xs opacity-60">${r.description||''} · Delivery ₹${r.delivery_charge||0} · Min order ₹${r.minimum_order_amount||0}</p>
+        <button onclick="deleteRestaurant(${r.id})" class="text-xs underline opacity-60 mt-1">Delete restaurant</button>
+      </div>
+    `).join('') || '<p class="text-sm opacity-60">No restaurants yet.</p>'}
+  </div>`;
+}
+
+async function addRestaurant(){
+  const payload = {
+    name: adminVal('r_name'), description: adminVal('r_desc'), address: adminVal('r_address'), phone: adminVal('r_phone'),
+    opening_time: adminVal('r_open')||null, closing_time: adminVal('r_close')||null,
+    delivery_charge: parseFloat(adminVal('r_delivery'))||0, minimum_order_amount: parseFloat(adminVal('r_minorder'))||0,
+    prep_time_minutes: parseInt(adminVal('r_prep'))||20, logo_url: adminVal('r_logo')||null,
+  };
+  if(!payload.name){ adminToast('Name required','error'); return; }
+  const { error } = await supabase.from('restaurants').insert(payload);
+  if(error){ adminToast('Failed: '+error.message,'error'); return; }
+  await loadAll(); adminRender();
+}
+async function toggleRestaurant(id, field, value){
+  const { error } = await supabase.from('restaurants').update({ [field]: value }).eq('id', id);
+  if(error){ adminToast('Failed: '+error.message,'error'); return; }
+  await loadAll(); adminRender();
+}
+async function deleteRestaurant(id){
+  if(!confirm('Delete this restaurant and its full menu?')) return;
+  await supabase.from('menu_items').delete().eq('restaurant_id', id);
+  await supabase.from('categories').delete().eq('restaurant_id', id);
+  await supabase.from('restaurants').delete().eq('id', id);
+  await loadAll(); adminRender();
+}
+function adminVal(id){ return document.getElementById(id).value.trim(); }
+
+function categoriesHtml(){
+  const cats = categories.filter(c=>c.restaurant_id===selectedRestaurantId);
+  return `
+  <div class="mb-3">
+    <label class="text-sm font-semibold block mb-1">Restaurant</label>
+    <select onchange="selectedRestaurantId=Number(this.value); adminRender()" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      ${restaurants.map(r=>`<option value="${r.id}" ${r.id===selectedRestaurantId?'selected':''}>${r.name}</option>`).join('')}
+    </select>
+  </div>
+  <div class="card p-4 mb-4">
+    <h3 class="signboard font-bold mb-2">Add category</h3>
+    <div class="flex gap-2">
+      <input id="cat_name" placeholder="e.g. Thali, Snacks" class="flex-1 border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      <button onclick="addCategory()" class="btn px-4">Add</button>
+    </div>
+  </div>
+  <div class="space-y-2">
+    ${cats.map(c=>`
+      <div class="card p-3 flex justify-between items-center">
+        <span class="font-semibold">${c.name} ${!c.is_active?'<span class=\"opacity-50 text-xs\">(disabled)</span>':''}</span>
+        <div class="flex gap-2">
+          <button onclick="toggleCategory(${c.id},${!c.is_active})" class="btn-ghost text-xs px-2 py-1">${c.is_active?'Disable':'Enable'}</button>
+          <button onclick="deleteCategory(${c.id})" class="text-xs underline opacity-60">Delete</button>
+        </div>
+      </div>
+    `).join('') || '<p class="text-sm opacity-60">No categories yet for this restaurant.</p>'}
+  </div>`;
+}
+async function addCategory(){
+  const name = adminVal('cat_name');
+  if(!name || !selectedRestaurantId){ adminToast('Pick a restaurant and enter a name','error'); return; }
+  const sort_order = categories.filter(c=>c.restaurant_id===selectedRestaurantId).length;
+  const { error } = await supabase.from('categories').insert({ restaurant_id: selectedRestaurantId, name, sort_order });
+  if(error){ adminToast('Failed: '+error.message,'error'); return; }
+  await loadAll(); adminRender();
+}
+async function toggleCategory(id, value){
+  await supabase.from('categories').update({ is_active: value }).eq('id', id);
+  await loadAll(); adminRender();
+}
+async function deleteCategory(id){
+  if(!confirm('Delete this category?')) return;
+  await supabase.from('categories').delete().eq('id', id);
+  await loadAll(); adminRender();
+}
+
+function menuHtml(){
+  const cats = categories.filter(c=>c.restaurant_id===selectedRestaurantId);
+  const items = menuItems.filter(m=>m.restaurant_id===selectedRestaurantId);
+  return `
+  <div class="mb-3">
+    <label class="text-sm font-semibold block mb-1">Restaurant</label>
+    <select onchange="selectedRestaurantId=Number(this.value); adminRender()" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      ${restaurants.map(r=>`<option value="${r.id}" ${r.id===selectedRestaurantId?'selected':''}>${r.name}</option>`).join('')}
+    </select>
+  </div>
+  <div class="card p-4 mb-4">
+    <h3 class="signboard font-bold mb-2">Add menu item</h3>
+    <div class="space-y-2">
+      <input id="m_name" placeholder="Item name" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      <select id="m_cat" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+        <option value="">No category</option>
+        ${cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}
+      </select>
+      <input id="m_desc" placeholder="Description (optional)" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      <div class="flex gap-2">
+        <input id="m_price" type="number" placeholder="Price ₹" class="w-1/2 border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+        <input id="m_prep" type="number" placeholder="Prep mins" class="w-1/2 border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      </div>
+      <div class="flex gap-2">
+        <input id="m_min" type="number" placeholder="Min quantity" value="1" class="w-1/2 border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+        <input id="m_max" type="number" placeholder="Max quantity (optional)" class="w-1/2 border-2 border-[var(--ink)] rounded-lg px-3 py-2">
+      </div>
+      <label class="flex items-center gap-2 text-sm font-semibold"><input id="m_veg" type="checkbox" checked> Vegetarian</label>
+      <label class="flex items-center gap-2 text-sm font-semibold"><input id="m_popular" type="checkbox"> Mark as popular</label>
+      <button onclick="addMenuItem()" class="btn w-full py-2">Add item</button>
+    </div>
+  </div>
+  <div class="space-y-2">
+    ${items.map(m=>`
+      <div class="card p-3">
+        <div class="flex justify-between items-center">
+          <p class="font-semibold">${m.name} — ₹${m.price} ${m.is_popular?'★':''}</p>
+          <span class="text-xs opacity-60">${m.is_veg?'Veg':'Non-veg'}</span>
+        </div>
+        <p class="text-xs opacity-60">Min ${m.min_quantity}${m.max_quantity?', max '+m.max_quantity:''} · ${m.is_available?'Available':'Unavailable'}</p>
+        <div class="flex gap-2 mt-2">
+          <button onclick="toggleItem(${m.id},'is_available',${!m.is_available})" class="btn-ghost text-xs px-2 py-1">${m.is_available?'Mark unavailable':'Mark available'}</button>
+          <button onclick="toggleItem(${m.id},'is_popular',${!m.is_popular})" class="btn-ghost text-xs px-2 py-1">${m.is_popular?'Unmark popular':'Mark popular'}</button>
+          <button onclick="deleteMenuItem(${m.id})" class="text-xs underline opacity-60">Delete</button>
+        </div>
+      </div>
+    `).join('') || '<p class="text-sm opacity-60">No items yet for this restaurant.</p>'}
+  </div>`;
+}
+async function addMenuItem(){
+  const payload = {
+    restaurant_id: selectedRestaurantId,
+    category_id: adminVal('m_cat') ? Number(adminVal('m_cat')) : null,
+    name: adminVal('m_name'), description: adminVal('m_desc')||null,
+    price: parseFloat(adminVal('m_price')), prep_time_minutes: parseInt(adminVal('m_prep'))||15,
+    min_quantity: parseInt(adminVal('m_min'))||1, max_quantity: adminVal('m_max') ? parseInt(adminVal('m_max')) : null,
+    is_veg: document.getElementById('m_veg').checked, is_popular: document.getElementById('m_popular').checked,
+  };
+  if(!payload.name || !payload.price){ adminToast('Name and price required','error'); return; }
+  const { error } = await supabase.from('menu_items').insert(payload);
+  if(error){ adminToast('Failed: '+error.message,'error'); return; }
+  await loadAll(); adminRender();
+}
+async function toggleItem(id, field, value){
+  await supabase.from('menu_items').update({ [field]: value }).eq('id', id);
+  await loadAll(); adminRender();
+}
+async function deleteMenuItem(id){
+  if(!confirm('Delete this item?')) return;
+  await supabase.from('menu_items').delete().eq('id', id);
+  await loadAll(); adminRender();
+}
+
+async function settingsHtml(){
+  const { data } = await supabase.from('settings').select('*');
+  const s = {}; (data||[]).forEach(row=>s[row.key]=row.value);
+  return `
+  <div class="card p-4 space-y-3">
+    <h3 class="signboard font-bold">Platform settings</h3>
+    <div><label class="text-sm font-semibold block mb-1">Zomiko name</label>
+      <input id="s_name" value="${s.zomiko_name||''}" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2"></div>
+    <div><label class="text-sm font-semibold block mb-1">UPI ID</label>
+      <input id="s_upi" value="${s.upi_id||''}" placeholder="yourname@upi" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2"></div>
+    <div><label class="text-sm font-semibold block mb-1">UPI QR image URL</label>
+      <input id="s_upiqr" value="${s.upi_qr_url||''}" placeholder="https://..." class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2"></div>
+    <div><label class="text-sm font-semibold block mb-1">Default delivery charge ₹</label>
+      <input id="s_delivery" type="number" value="${s.default_delivery_charge||0}" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2"></div>
+    <div><label class="text-sm font-semibold block mb-1">Order retention (days)</label>
+      <input id="s_retention" type="number" value="${s.order_retention_days||30}" class="w-full border-2 border-[var(--ink)] rounded-lg px-3 py-2"></div>
+    <button onclick="saveSettings()" class="btn w-full py-2">Save settings</button>
+  </div>`;
+}
+async function saveSettings(){
+  const updates = [
+    { key:'zomiko_name', value: adminVal('s_name') },
+    { key:'upi_id', value: adminVal('s_upi') },
+    { key:'upi_qr_url', value: adminVal('s_upiqr') || null },
+    { key:'default_delivery_charge', value: parseFloat(adminVal('s_delivery'))||0 },
+    { key:'order_retention_days', value: parseInt(adminVal('s_retention'))||30 },
+  ];
+  /* ================================================================
+   BOOT — one shared bootstrap for both sides of the app
+   ================================================================ */
+routeApp();
+(async function boot(){
+  libraryLoaded = await window.__supabaseReady;
+  if(configured && libraryLoaded){
+    try{ supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }
+    catch(e){ console.error(e); libraryLoaded = false; }
+  }
+  await loadHome();
+  await adminInit();
+  routeApp();
+})();
 </script>
 </body>
 </html>
